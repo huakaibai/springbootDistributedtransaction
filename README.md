@@ -1,0 +1,2 @@
+# springbootDistributedtransaction
+基于rabbitmq的分布式事务
