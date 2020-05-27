@@ -1,18 +1,22 @@
 package com.zhibinwang.dt.service.impl;
 
 import com.zhibinwang.dt.enump.TxMessageStatus;
-import com.zhibinwang.dt.mapper.TransactionMessageMapper;
-import com.zhibinwang.dt.mapper.TransactionalMessageContentMapper;
-import com.zhibinwang.dt.model.TransactionalMessage;
-import com.zhibinwang.dt.model.TransactionalMessageContent;
+import com.zhibinwang.dt.mapper.TTransactionalMessageContentMapper;
+import com.zhibinwang.dt.mapper.TTransactionalMessageMapper;
+import com.zhibinwang.dt.model.TTransactionalMessage;
+import com.zhibinwang.dt.model.TTransactionalMessageContent;
+import com.zhibinwang.dt.model.TTransactionalMessageContentExample;
+import com.zhibinwang.dt.model.TTransactionalMessageExample;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.core.Exchange;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * @author zhibin.wang
@@ -23,10 +27,9 @@ import java.time.LocalDateTime;
 public class TransactionalMessageManagementService {
 
     @Autowired
-    private  TransactionalMessageContentMapper transactionalMessageContentMapper;
-
+    private TTransactionalMessageMapper transactionalMessageMapper;
     @Autowired
-    private TransactionMessageMapper transactionMessageMapper;
+    private TTransactionalMessageContentMapper transactionalMessageContentMapper;
 
     @Autowired
     private RabbitTemplate rabbitTemplate;
@@ -37,7 +40,7 @@ public class TransactionalMessageManagementService {
     private static final int DEFAULT_MAX_RETRY_TIMES = 5;
     private static final int LIMIT = 100;
 
-    public void  saveTransctionMessage(TransactionalMessage transactionalMessage,String content){
+    public void  saveTransctionMessage(TTransactionalMessage transactionalMessage, String content){
         transactionalMessage.setCreateTime(LocalDateTime.now());
         transactionalMessage.setEditTime(LocalDateTime.now());
         transactionalMessage.setCreator("admin");
@@ -51,14 +54,14 @@ public class TransactionalMessageManagementService {
         transactionalMessage.setCurrentRetryTimes(0);
         transactionalMessage.setMaxRetryTimes(DEFAULT_MAX_RETRY_TIMES);
         transactionalMessage.setMessageStatus(TxMessageStatus.PENDING.getStatus());
-        // 插入数据库 TODO
-
-        TransactionalMessageContent transactionalMessageContent = new TransactionalMessageContent();
+        // 插入数据库
+        transactionalMessageMapper.insertSelective(transactionalMessage);
+        TTransactionalMessageContent transactionalMessageContent = new TTransactionalMessageContent();
         transactionalMessageContent.setContent(content);
         transactionalMessageContent.setMessageId(transactionalMessage.getId());
 
-        //插入数据库 TODO
-
+        //插入数据库
+        transactionalMessageContentMapper.insertSelective(transactionalMessageContent);
 
     }
 
@@ -67,11 +70,11 @@ public class TransactionalMessageManagementService {
      * @param transactionalMessage
      * @param content
      */
-    public void sendMessageToMq(TransactionalMessage transactionalMessage,String content){
+    public void sendMessageToMq(TTransactionalMessage transactionalMessage,String content){
 
        try {
 
-           rabbitTemplate.convertAndSend(transactionalMessage.getExchangeName(), transactionalMessage.getRoutingKey(),content);
+           rabbitTemplate.convertAndSend(transactionalMessage.getExchangeName(), transactionalMessage.getRoutingKey(), content);
            //没有报错说明发送成功
            makeSuccess(transactionalMessage);
        }catch (Exception e){
@@ -80,7 +83,7 @@ public class TransactionalMessageManagementService {
        }
     }
 
-    private void  makeSuccess(TransactionalMessage transactionalMessage){
+    private void  makeSuccess(TTransactionalMessage transactionalMessage){
         // 设置下次重发时间为最大重发时间
         transactionalMessage.setNextScheduleTime(END);
 
@@ -91,9 +94,10 @@ public class TransactionalMessageManagementService {
                 transactionalMessage.getMaxRetryTimes() : transactionalMessage.getCurrentRetryTimes() + 1);
 
         // 更新数据库 id已经赋值并传进去了，所以可以根据id进行更新 TODO
+        transactionalMessageMapper.updateByPrimaryKeySelective(transactionalMessage);
     }
 
-    private void makeFail(TransactionalMessage transactionalMessage,Exception e){
+    private void makeFail(TTransactionalMessage transactionalMessage,Exception e){
         log.error("发送队列{}消息失败", transactionalMessage.getQueueName(),e);
 
         transactionalMessage.setEditTime(LocalDateTime.now());
@@ -110,7 +114,8 @@ public class TransactionalMessageManagementService {
            transactionalMessage.setNextScheduleTime(calculateNextScheduleTime(transactionalMessage.getNextScheduleTime(), Long.valueOf(retryTimes)));
        }
 
-       // 更新数据库 TODO
+       // 更新数据库
+        transactionalMessageMapper.updateByPrimaryKeySelective(transactionalMessage);
     }
 
     /**
@@ -118,8 +123,36 @@ public class TransactionalMessageManagementService {
      */
     public void processPendingCompensationRecords (){
 
+
+        // 时间的右值为当前时间减去退避初始值，这里预防把刚保存的消息也推送了
+        LocalDateTime max = LocalDateTime.now().plusSeconds(-DEFAULT_INIT_BACKOFF);
+        // 时间的左值为右值减去1小时
+        LocalDateTime min = max.plusHours(-1);
+        log.info("重发时间 max={},min={}",max,min);
+        TTransactionalMessageExample tTransactionalMessageExample = new TTransactionalMessageExample();
+        TTransactionalMessageExample.Criteria criteria = tTransactionalMessageExample.createCriteria();
+        criteria.andNextScheduleTimeBetween(min,max);
         // 查询需要进行业务补偿的数据
+        List<TTransactionalMessage> tTransactionalMessages = transactionalMessageMapper.selectByExample(tTransactionalMessageExample);
+        Map<Long, TTransactionalMessage> collect = tTransactionalMessages.stream().collect(Collectors.toMap(TTransactionalMessage::getId, x -> x));
         // 查询状态为失败，
+        Set<Long> messageId = collect.keySet();
+        if (messageId == null || messageId.size() < 1){
+            log.info("定时任务补偿，无可补偿数据-------------");
+            return;
+        }
+
+        // 根据id查询消息
+        TTransactionalMessageContentExample messageContentExample = new TTransactionalMessageContentExample();
+        TTransactionalMessageContentExample.Criteria contentExampleCriteria = messageContentExample.createCriteria();
+        contentExampleCriteria.andMessageIdIn(messageId.stream().collect(Collectors.toList()));
+
+        transactionalMessageContentMapper.selectByExample(messageContentExample).stream().forEach(item->{
+            TTransactionalMessage message = collect.get(item.getMessageId());
+            sendMessageToMq(message, item.getContent());
+            log.info("补偿发送分布式事务,消息id{}",item.getMessageId());
+        });
+
     }
 
     /**

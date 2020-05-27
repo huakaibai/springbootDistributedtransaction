@@ -2,6 +2,7 @@ package com.zhibinwang.dt.service.impl;
 
 import com.zhibinwang.dt.service.TxMessage;
 import lombok.Builder;
+import lombok.ToString;
 
 /**
  * @author zhibin.wang
@@ -9,6 +10,7 @@ import lombok.Builder;
  **/
 
 @Builder
+@ToString
 public class DefaultTxMessage implements TxMessage {
 
     String businessModule;
@@ -17,16 +19,16 @@ public class DefaultTxMessage implements TxMessage {
 
     @Override
     public String businessModule() {
-        return null;
+        return businessModule;
     }
 
     @Override
     public String businessKey() {
-        return null;
+        return businessKey;
     }
 
     @Override
     public String content() {
-        return null;
+        return content;
     }
 }

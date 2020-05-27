@@ -1,7 +1,7 @@
 package com.zhibinwang.dt.service.impl;
 
 import com.zhibinwang.dt.enump.ExchangeType;
-import com.zhibinwang.dt.model.TransactionalMessage;
+import com.zhibinwang.dt.model.TTransactionalMessage;
 import com.zhibinwang.dt.service.Destination;
 import com.zhibinwang.dt.service.TransactionMessageService;
 import com.zhibinwang.dt.service.TxMessage;
@@ -62,7 +62,7 @@ public class RabbitMqTransactionMessageServiceImpl implements TransactionMessage
         });
 
         // 数据库保存事务消息
-        TransactionalMessage transactionalMessage = new TransactionalMessage();
+        TTransactionalMessage transactionalMessage = new TTransactionalMessage();
         transactionalMessage.setExchangeName(exchangeName);
         transactionalMessage.setExchangeType(exchangeType.getType());
         transactionalMessage.setQueueName(queueName);

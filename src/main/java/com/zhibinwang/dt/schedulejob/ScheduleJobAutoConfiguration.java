@@ -42,6 +42,7 @@ public class ScheduleJobAutoConfiguration {
         boolean tryLock = lock.tryLock(5, 300, TimeUnit.SECONDS);
         if (tryLock){
             try {
+
                 long start = System.currentTimeMillis();
                 transactionalMessageManagementService.processPendingCompensationRecords();
                 long end = System.currentTimeMillis();

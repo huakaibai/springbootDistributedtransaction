@@ -1,23 +1,25 @@
 package com.zhibinwang.dt.model;
 
+import java.math.BigDecimal;
+
 public class TOrder {
-    private String odrerId;
+    private String orderId;
 
-    private String amount;
+    private BigDecimal amount;
 
-    public String getOdrerId() {
-        return odrerId;
+    public String getOrderId() {
+        return orderId;
     }
 
-    public void setOdrerId(String odrerId) {
-        this.odrerId = odrerId == null ? null : odrerId.trim();
+    public void setOrderId(String orderId) {
+        this.orderId = orderId == null ? null : orderId.trim();
     }
 
-    public String getAmount() {
+    public BigDecimal getAmount() {
         return amount;
     }
 
-    public void setAmount(String amount) {
-        this.amount = amount == null ? null : amount.trim();
+    public void setAmount(BigDecimal amount) {
+        this.amount = amount;
     }
 }
